@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Ensure the correct command is found:
+export PATH=<replace_this_with_your_path_to_code-saturne_binary_excutable>:$PATH
+
+# Run command:
+if [ ! -d ../RESU ]; then
+	mkdir -p ../RESU;
+fi
+
+\code_saturne run --param setup.xml --nprocs 12 --id result

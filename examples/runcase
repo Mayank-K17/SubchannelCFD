@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Ensure the correct command is found:
+export PATH=<replace_this_with_your_path_to_code-saturne_binary_excutable>:$PATH
+
+# Run command:
+if [ ! -d RESU_COUPLING ]; then
+	mkdir -p RESU_COUPLING;
+fi
+
+resu=result
+
+\code_saturne run --initialize --id=$resu
+cd RESU_COUPLING/$resu
+./run_solver
