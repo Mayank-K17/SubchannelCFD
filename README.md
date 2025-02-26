@@ -18,8 +18,7 @@ cd <directory_to_your_case>/DATA
 ```
 
 ## Contact
-* Bo Liu, SC STFC Daresbury Laboratory, UK (bo.liu@stfc.ac.uk; bo.liu@sheffield.ac.uk)
-* Shuisheng He, The University of Sheffield, UK (s.he@sheffield.ac.uk)
+* Bo Liu, SC STFC Daresbury Laboratory, UK (bo.liu@stfc.ac.uk)
 
 ## References
 
