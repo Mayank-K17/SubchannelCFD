@@ -293,6 +293,8 @@ if (ivivar.gt.0) then
   do ilelt = 1, nlelt
     iel = lstelt(ilelt)
     xvart = cvar_scalt(iel)
+    if (xvart>maxlim) xvart = maxlim
+    if (xvart<minlim) xvart = minlim
     cpro_index = int((xvart-user_prop(1,1))*factor)+1
     intp = user_prop(cpro_index+1,1)-user_prop(cpro_index,1)
     intp1 = (xvart-user_prop(cpro_index,1))/intp

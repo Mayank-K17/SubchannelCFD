@@ -156,7 +156,7 @@ double precision, pointer, dimension(:) :: visvdr, hbord, theipb
 
 ! Local variables
 
-integer          ifac, iel, isou, ii, jj, kk
+integer          ifac, iel, isou, ii, jj, kk, j
 integer          iscal, clsyme
 integer          modntl
 integer          iuntur, f_dim
@@ -229,7 +229,7 @@ double precision, dimension(:), pointer :: coefa_nu, coefaf_nu
 double precision, dimension(:), pointer :: coefb_nu, coefbf_nu
 double precision, dimension(:), pointer :: coefa_tlag, coefaf_tlag
 double precision, dimension(:), pointer :: coefb_tlag, coefbf_tlag
-double precision, dimension(:), pointer :: wall_shear_stress
+double precision, dimension(:), pointer :: atau_w, subchannel_ID
 
 double precision, dimension(:,:), pointer :: coefa_rij, coefaf_rij, coefad_rij
 double precision, dimension(:,:,:), pointer :: coefb_rij, coefbf_rij, coefbd_rij
@@ -568,8 +568,8 @@ if (ippmod(iatmos).ge.1) then
   endif
 endif
 
-call field_get_val_s_by_name('WallShearStress', wall_shear_stress)
-
+call field_get_val_s_by_name('WallShearStress', atau_w)
+call field_get_val_s_by_name('SubchannelID', subchannel_ID)
 ! --- Loop on boundary faces
 do ifac = 1, nfabor
 
@@ -1013,7 +1013,8 @@ do ifac = 1, nfabor
 
     ! Set velocity boudnary conditions as symmetry
     ! This is equivalent to calling subroutine pseudo_symmetry
-    if(slip_type==3) then
+    j = int(subchannel_ID(iel))
+    if(slip_type==3.and.j>0) then
       cofimp = 1.d0
       hflui  = 0.d0
     end if
@@ -1043,7 +1044,7 @@ do ifac = 1, nfabor
     !-------------------------
 
 !!  Another way to implement wall shear stress calculated using correlations
-!     hflui = wall_shear_stress(iel)/(abs(velipb(ifac,3))+epzero)
+    hflui = atau_w(iel)/(abs(velipb(ifac,3))+epzero)
 
     cofafu(1,ifac)   = -hflui*(rcodcx - rcodcn*rnx) - hint*rcodcn*rnx
     cofafu(2,ifac)   = -hflui*(rcodcy - rcodcn*rny) - hint*rcodcn*rny
@@ -3756,10 +3757,10 @@ double precision, pointer, dimension(:) :: hextp, theipb, dist_theipb
 double precision, dimension(:) :: hbnd
 
 ! Local variables
-integer :: ifac, iel
+integer :: ifac, iel, j
 integer :: ivar, f_id
 double precision :: hext, tempf, fluxf
-double precision, dimension(:), pointer :: htc, tbulk, tfluxwall
+double precision, dimension(:), pointer :: htc, tbulk, tfluxwall, subchannel_ID
 logical(c_bool), pointer, dimension(:) ::  cpl_faces
 type(var_cal_opt) :: vcopt
 
@@ -3770,37 +3771,43 @@ f_id = ivarfl(ivar)
 call field_get_key_struct_var_cal_opt(f_id, vcopt)
 
 call field_get_val_s_by_name('HTC', htc)
-call field_get_val_s_by_name('SubchannelBulkTemperature', tbulk)
+call field_get_val_s_by_name('AverageTemperature', tbulk)
+!call field_get_val_s_by_name('SubchannelBulkTemperature', tbulk)
 call field_get_val_s_by_name('WallThermalFlux', tfluxwall)
+call field_get_val_s_by_name('SubchannelID', subchannel_ID)
 tfluxwall = 0.d0
 
 if (vcopt%icoupl.gt.0) then
   call field_get_coupled_faces(f_id, cpl_faces)
 endif
 
-if (fluid_solid) call cs_porous_model_set_has_disable_flag(1)
+!if (fluid_solid) call cs_porous_model_set_has_disable_flag(1)
 
 do ifac = 1, nfabor
-
   if (icodcl(ifac,iu).eq.5 .and. cpl_faces(ifac)) then
-
     iel = ifabor(ifac)
-    if(cell_is_active(iel)==0)cycle
+    j = int(subchannel_ID(iel))
+!    if(cell_is_active(iel)==0)cycle
+    if(j<0)cycle
 
     hext = hextp(ifac)/surfbn(ifac)
 
     tempf = hext*dist_theipb(ifac)+htc(iel)*tbulk(iel)
     tempf = tempf/(htc(iel)+hext)
     fluxf = hext*(dist_theipb(ifac)-tempf)
-    hbnd(ifac) = fluxf/(tempf-theipb(ifac))
+    if(abs(tempf-theipb(ifac))<1.d-3)then
+      hbnd(ifac) = epzero
+    else
+      hbnd(ifac) = fluxf/(tempf-theipb(ifac))
+    end if
+    hbnd(ifac) = max(epzero, hbnd(ifac))
 
     tfluxwall(ifac) = -fluxf
 
   endif
-
 enddo
 
-if(fluid_solid) call cs_porous_model_set_has_disable_flag(0)
+!if(fluid_solid) call cs_porous_model_set_has_disable_flag(0)
 
 call cs_ic_field_set_exchcoeff(f_id, hbnd)
 

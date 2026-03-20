@@ -162,6 +162,11 @@ cs_user_model(void)
                                1, 
                                CS_MESH_LOCATION_CELLS);
 
+  // Subchannel wall heat flux
+    cs_parameters_add_property("SubchannelWallHeatFlux",
+                               1, 
+                               CS_MESH_LOCATION_CELLS);
+
   // Average subchannel velocity
     cs_parameters_add_property("AverageVelocity",
                                3,

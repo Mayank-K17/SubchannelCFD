@@ -110,13 +110,11 @@ double precision rcodcl(nfabor,nvar,3)
 
 integer, allocatable, dimension(:) :: lstelt1, lstelt2
 integer                            :: ifac, iel, ivar
-integer                            :: ilelt, nlelt1, nlelt2
+integer                            :: ielt, nlelt1, nlelt2
 integer                            :: symmtyp
 
 double precision, dimension(:,:), pointer :: vel
 double precision, dimension(:), pointer :: cht
-
-!===============================================================================
 
 !===============================================================================
 ! Initialization
@@ -142,8 +140,8 @@ call getfbr(unheated_walls, nlelt2, lstelt2)
 
 symmtyp = slip_type
 
-do ilelt = 1, nlelt1
-  ifac = lstelt1(ilelt)
+do ielt = 1, nlelt1
+  ifac = lstelt1(ielt)
 
   if(symmtyp==1) then
 
@@ -197,8 +195,8 @@ enddo
 
 !!--------------------------------------------------------
 !! Set boundary conditions for the unheated walls
-do ilelt = 1, nlelt2
-  ifac = lstelt2(ilelt)
+do ielt = 1, nlelt2
+  ifac = lstelt2(ielt)
 
   if(symmtyp==1) then
 

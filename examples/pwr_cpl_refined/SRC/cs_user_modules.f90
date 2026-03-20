@@ -165,7 +165,7 @@ implicit none
 
   double precision, allocatable, dimension (:,:) :: user_prop
   integer :: n_rows
-  
+
 !===============================================================================
 
   contains
@@ -173,19 +173,19 @@ implicit none
 !! This routine is used to pass mesh scaling factor to cs_user_mesh.c
   function set_scaling_factor() &
     bind (C,name='set_scaling_factor')
-  
+
     use, intrinsic :: iso_c_binding
-  
+
     implicit none
- 
+
     real(kind=c_double) :: set_scaling_factor
- 
+
     if (mesh_scale) then
       set_scaling_factor = mesh_scaling_factor
     else
       set_scaling_factor = 1.d0
     end if
-  
+
   end function set_scaling_factor
 
 !===============================================================================
@@ -206,36 +206,35 @@ implicit none
 !! This routine should be called after subchannel_mesh to allocate memories 
 !! mainly for subchannel variables 
   subroutine allocate_var()
-  
+
     implicit none
- 
+
 !! Arrays for subchannel wall surface area and volume (excluding solid)
     allocate(subchannel_surf(n_cell), subchannel_vol(n_cell), &
              subchannel_rodsurf(n_cell), subchannel_wallsurf(n_cell))
   
   end subroutine allocate_var
-  
-  
+
+
 !===============================================================================
 !! This routine should be called to dump the memory of common variables
 !! after the whole of simulation is completed
   subroutine deallocate_var()
-  
+
     implicit none
-    
+
     deallocate(cell_height, cell_vol, cell_type)
     deallocate(subchannel_surf, subchannel_vol, subchannel_rodsurf, &
                subchannel_wallsurf, PbyD)
   
   end subroutine deallocate_var
-  
-  
+
 !===============================================================================
 !! This routine is used to bridge the subchannel mesh and computing mesh
   subroutine subchannel_mesh()
-  
+
     implicit none
-    
+
     select case (bundle_type)
     case (1)
       all_rod_walls = trim(pin)
@@ -267,18 +266,18 @@ implicit none
   subroutine subchannel_mesh_dimensions(mesh_file, n_node, n_entity)
     
     implicit none
-    
+
 !!  Aguments
     character(len=30), intent(IN) :: mesh_file
     integer, intent(OUT) :: n_node, n_entity
-    
+
 !!  Local variables
     character(1) :: dummy
     logical :: alive
-    
+
 !!  Check if mesh file exists
     inquire(file=mesh_file, exist=alive)
-    
+
     if(alive) then
       open(100, file=mesh_file, status='old') 
     else
@@ -288,9 +287,9 @@ implicit none
 
 !!  Read in number of nodes and 1D, 2D and 3D elements 
     read(100,*)n_node, n_entity
-    
+
     close(100)
-    
+
   end subroutine subchannel_mesh_dimensions
 
 
@@ -300,7 +299,7 @@ implicit none
                                         x, y, z, index_cell, n_cell)
     
     implicit none
-    
+
 !!    Aguments
     character(len=30), intent(IN) :: mesh_file
     integer, intent(IN) :: n_node, n_entity
@@ -313,24 +312,24 @@ implicit none
     logical :: alive
     integer :: itemp, stat
     integer :: i
-    
+
  !!  Check if mesh file exists
     inquire(file=mesh_file, exist=alive)
-    
+
     if(alive) then
       open(100, file=mesh_file, status='old')
     else
       write(*,*)"subchannel mesh doesn't exist. Program terminated"
       stop
     end if
-    
+
     read(100,*)
- 
+
  !! Read in node cordinates of the subchannel mesh
     do i=1,n_node
       read(100,*)dummy, x(i), y(i), z(i)
     end do
- 
+
  !! read in cell information
     n_cell = 0
     do
@@ -351,12 +350,12 @@ implicit none
 !===============================================================================
 !! This routine is for standard PWR bundles
   subroutine subchannel_mesh_PWR()
-  
+
     use numvar
     use field
     use mesh
     use parall
-  
+
     implicit none
 
     integer :: n_node, n_entity
@@ -367,17 +366,17 @@ implicit none
     double precision, dimension(:), pointer :: subchannel_ID, &
                                                subchannel_type, &
                                                pitch2diameter
-    
+
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
-    
+
     call subchannel_mesh_dimensions(subchannel_mesh_name, n_node, n_entity)
-    
+
     allocate(x(n_node),y(n_node),z(n_node))
     allocate(index_cell(n_entity, 8))
-    
+
     call subchannel_mesh_readin_pwr(subchannel_mesh_name, n_node, n_entity, &
                                     x, y, z, index_cell, n_cell)
-    
+
 !! Scale mesh from mm to m
     if(subchannel_mesh_scale)then
       x = x*subchannel_scaling_factor
@@ -407,14 +406,14 @@ implicit none
       y_channel(i) = 0.5d0*(yy(i,2)+yy(i,1))
       z_channel(i) = 0.5d0*(zz(i,2)+zz(i,1))
     end do
-    
+
 !! cell_type: 1 interior channel; 2 edge channel; 3 corner channel
     cell_type = 1
     where(cell_vol/cell_height<spacing_edge*maxval(cell_vol/cell_height)) &
       cell_type = 2
     where(cell_vol/cell_height<spacing_corner*maxval(cell_vol/cell_height)) &
       cell_type = 3
-    
+
 !! Set pitch-to-diameter ratio for the subchannels
     where(cell_type==1)PbyD = PbyD_interior
     where(cell_type==2)PbyD = PbyD_edge
@@ -436,7 +435,7 @@ implicit none
     do iel=1, ncel
       if(abs(subchannel_ID(iel))<1.d-12) SubchannelID_err = 1.d0
     end do
-    
+
     if(irangp.ge.0)call parsom(SubchannelID_err)
 
     if(SubchannelID_err>0.99d0)then
@@ -446,7 +445,7 @@ implicit none
       end if
       stop
     end if
- 
+
     call field_get_val_s_by_name('PitchtoDiameterRatio', pitch2diameter)
     call field_get_val_s_by_name('SubchannelType', subchannel_type)
     
@@ -467,7 +466,7 @@ implicit none
                                         x, y, z, index_cell, n_cell)
     
     implicit none
-    
+
 !!    Aguments
     character(len=30), intent(IN) :: mesh_file
     integer, intent(IN) :: n_node, n_entity
@@ -482,24 +481,24 @@ implicit none
     integer :: itemp, stat
     integer :: i
     integer :: nCol
-    
+
  !!  Check if mesh file exists
     inquire(file=mesh_file, exist=alive)
-    
+
     if(alive) then
       open(100, file=mesh_file, status='old')
     else
       write(*,*)"subchannel mesh doesn't exist. Program terminated"
       stop
     end if
-    
+
     read(100,*)
- 
+
  !! Read in node cordinates of the subchannel mesh
     do i=1,n_node
       read(100,*)dummy, x(i), y(i), z(i)
     end do
- 
+
  !! read in cell information
     n_cell = 0
     do
@@ -514,11 +513,11 @@ implicit none
         read(100,*, iostat=stat)dummy, itemp, index_cell(n_cell, 1:nCol)
       end if
     end do
- 
+
     close(100)
 
   end subroutine subchannel_mesh_readin_agr
-  
+
 
 !===============================================================================
 !! This routine is for standard AGR bundles
@@ -528,7 +527,7 @@ implicit none
     use field
     use mesh
     use parall
-  
+
     implicit none
 
     integer :: n_node, n_entity
@@ -543,7 +542,7 @@ implicit none
                                                subchannel_type, &
                                                pitch2diameter
     logical :: within
-    
+
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
 
     call subchannel_mesh_dimensions(subchannel_mesh_name, n_node, n_entity)
@@ -557,20 +556,20 @@ implicit none
 
     call subchannel_mesh_readin_agr(subchannel_mesh_name, n_node, n_entity, &
                                     x, y, z, index_cell, n_cell)
-    
+
 !! Scale mesh from mm to m
     if(subchannel_mesh_scale)then
       x = x*subchannel_scaling_factor
       y = y*subchannel_scaling_factor
       z = z*subchannel_scaling_factor
     end if
-        
+
 !! Check value for debug
 !    do i=1,n_cell
 !      write(*,*)index_cell(i,1:nCol_max)
 !    end do
-        
-!! Calculate minimum and maximum coordinates value of the subchannel cell
+
+!! Calculate minimum and maximum coordinates value of the subchannel cell     
     allocate(xx(n_cell, nCol_max), &
              yy(n_cell, nCol_max), &
              zz(n_cell, nCol_max))
@@ -589,7 +588,7 @@ implicit none
     y_face2 = 0.d0
     z_face1 = 0.d0
     z_face2 = 0.d0
-    
+
 !! Module variable, should be deallocated after the whole simulation
     allocate(cell_height(n_cell))
     allocate(cell_vol(n_cell))
@@ -597,12 +596,12 @@ implicit none
     allocate(PbyD(n_cell))
     allocate(x_channel(n_cell),y_channel(n_cell),z_channel(n_cell))
     PbyD = 1.5
-    
+
     do i=1, n_cell
       xx(i,:) = x(index_cell(i,:))
       yy(i,:) = y(index_cell(i,:))
       zz(i,:) = z(index_cell(i,:))
-      
+
 !! Calculate cell height of the subchannel mesh
       k1 = 1
       k2 = 1
@@ -650,17 +649,17 @@ implicit none
 
     call field_get_val_s_by_name('PitchtoDiameterRatio', pitch2diameter)
     call field_get_val_s_by_name('SubchannelType', subchannel_type)
-    
+
     do iel=1, ncel
       pitch2diameter(iel) = PbyD(int(subchannel_ID(iel)))
       subchannel_type(iel) = cell_type(int(subchannel_ID(iel)))
-    end do 
+    end do
 
     deallocate(x,y,z)
     deallocate(index_cell)
     deallocate(xx,yy,zz)
     deallocate(x_face1,y_face1,z_face1,x_face2,y_face2,z_face2)
-    
+
   end subroutine subchannel_mesh_AGR
 
 
@@ -676,7 +675,7 @@ implicit none
     bIsQuote = .false.
     do i = 1,len_trim(cStr)
       select case(cStr(i:i))
-      case('"' , "'") 
+      case('"' , "'")
         if (.not.bIsQuote) nColumns_irr = nColumns_irr + 1
         bIsQuote = .not.bIsQuote
         bIsSeparator = .false.
@@ -684,14 +683,14 @@ implicit none
         if (.not.bIsQuote) then
           bIsSeparator = .true.
         end if
-      case default     
+      case default
         if (bIsSeparator) then
           nColumns_irr = nColumns_irr + 1
         end if
         bIsSeparator = .false.
       end select
     end do
-    
+
   end function nColumns_irr
 
 
@@ -710,7 +709,7 @@ implicit none
       numvars = numvars + 1
       tmpvars = tmpvars(index(tmpvars, trim(tmpvar))+len_trim(tmpvar):)
     end do
-    
+
   end function nColumn_r
 
 
@@ -720,9 +719,9 @@ implicit none
   subroutine SubchannelVol(cellVol)
     
     implicit none
-    
+
     double precision, intent(OUT) :: cellVol
-  
+
   end subroutine SubchannelVol
 
 
@@ -730,41 +729,41 @@ implicit none
 !! This routine is used to identify the type of the subchannel mesh elements 
 !! Need to be added (This is important to calculate Cf)  
   subroutine SubchannelType(cellType)
-    
+
     implicit none
-    
+
     integer, intent(OUT) :: cellType
-    
+
     cellType = 1
-  
+
   end subroutine SubchannelType 
 
 
 !===============================================================================
 !! This routine is to judge if (x0,y0) is within an axial subchannel face cell
   subroutine find_suchannel_index(x0, y0, x, y, index_cell, within)
-    
+
     implicit none
-    
+
     double precision, dimension(:), intent(IN) :: x, y
     double precision, intent(IN) :: x0, y0
     integer, dimension(:), intent(IN) :: index_cell
     logical, intent(OUT) :: within
-    
+
     double precision, dimension(:), allocatable :: same_side
     integer :: nNodes
     integer :: i,j,k
-    
+
     within = .true.
-    
+
     nNodes = 0
     do i=1, size(index_cell)
       if(index_cell(i)/=-1)nNodes = nNodes+1
     end do 
     nNodes = nNodes/2
-    
+
     allocate(same_side(nNodes))
-    
+
     do i=1, nNodes
       j = i
       k = i 
@@ -774,54 +773,53 @@ implicit none
       end if
       if(i>nNodes-1)then
         j = i-nNodes
-      end if 
+      end if
       same_side(i) = (x0-x(j+1))*(y(i)-y(j+1))-(y0-y(j+1))*(x(i)-x(j+1))
       same_side(i) = same_side(i)*((x(k+2)-x(j+1)) &
                    * (y(i)-y(j+1))-(y(k+2)-y(j+1))*(x(i)-x(j+1)))
       if(edge_corr(x(i),y(i),x(j+1),y(j+1)))same_side(i)=1.d0
     end do
-    
+
     do i=1,nNodes
       if(same_side(i)<0)within = .false.
     end do
-        
+
   end subroutine find_suchannel_index
 
 
 !===============================================================================
 ! This function is used for edge channel correction
   function edge_corr(x1, y1, x2, y2)
-    
+
     implicit none
-    
+
     double precision, intent(IN) :: x1, y1, x2, y2
     logical :: edge_corr
-    
+
     double precision :: radius1, radius2
-    
+
     edge_corr = .false.
     
     radius1 = sqrt((x1-x_origin)**2+(y1-y_origin)**2)
     radius2 = sqrt((x2-x_origin)**2+(y2-y_origin)**2)
-    
+
     if(abs(radius1-bundle_R)<1.e-10 .and. abs(radius2-bundle_R)<1.e-10)&
       edge_corr = .true.
-    
-  end function edge_corr
-  
+
+  end function edge_corr 
 
 !===============================================================================
 !! This routine is used to calculate the hydraulic diameter of each subchannel
 !! Not accurate on very coarse computing mesh  
   subroutine hydraulic_diameter()
-  
+
     use numvar
     use field
     use mesh
     use parall
-        
+
     implicit none
-    
+
     character(len=80) :: chaine1, chaine2
     integer :: i, iel, ielt, ifac, nlelt1, nlelt2
     integer, allocatable, dimension(:) :: lstelt1, lstelt2
@@ -842,14 +840,14 @@ implicit none
     call getfbr(chaine1, nlelt1, lstelt1)
     call getfbr(chaine2, nlelt2, lstelt2)
 
-!! Field arrays used    
+!! Field arrays used
     call field_get_val_s_by_name('HydraulicDiameter', Dh)
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
     call field_get_val_s_by_name('TotalSurfaceArea', surf)
     call field_get_val_s_by_name('SubchannelVolume', cvol)
     call field_get_val_s_by_name('RodSurfaceArea', surf_rod)
     call field_get_val_s_by_name('HousingWallSurfaceArea', surf_wall)
-    
+
 !! Calculate the wall surface areas of each subchannel
     subchannel_surf = 0.d0
     subchannel_rodsurf = 0.d0
@@ -876,7 +874,7 @@ implicit none
         end if
       end do
     end do
-        
+
 !! Calculate total volume of each subchannl (excluding solid)
     subchannel_vol = 0.d0
     do iel=1, ncel
@@ -890,14 +888,12 @@ implicit none
 
 !! In case of parallel run
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_surf(i))
-        call parsom(subchannel_rodsurf(i))
-        call parsom(subchannel_wallsurf(i))
-        call parsom(subchannel_vol(i))
-        call parcpt(nc(i))
-        call parcpt(nf(i))
-      end do
+      call parrsm(n_cell, subchannel_surf)
+      call parrsm(n_cell, subchannel_rodsurf)
+      call parrsm(n_cell, subchannel_wallsurf)
+      call parrsm(n_cell, subchannel_vol)
+      call parism(n_cell, nc)
+      call parism(n_cell, nf)
     endif
 
 !! Calculate the hydraulic diameter for each subchannel 
@@ -925,27 +921,27 @@ implicit none
     use field
     use mesh
     use parall
-        
+
     implicit none
-    
+
     integer :: i, ii, iel
     double precision, dimension(:), pointer :: subchannel_ID, Dh, axial_Re
     double precision, dimension(:), pointer :: A_vis, A_den
     double precision, dimension(:,:), pointer :: A_vel
     double precision, allocatable, dimension(:,:) :: subchannel_vel
-    
+
     call field_get_val_v_by_name('AverageVelocity', A_vel)
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
     call field_get_val_s_by_name('HydraulicDiameter', Dh)
     call field_get_val_s_by_name('AxialReynoldsNumber', axial_Re)
     call field_get_val_s_by_name('AverageDynamicViscosity', A_vis)
     call field_get_val_s_by_name('AverageDensity', A_den)
-    
+
     do iel=1, ncel
       axial_Re(iel) = A_den(iel)*A_vel(3,iel)*Dh(iel)/A_vis(iel)
       axial_Re(iel) = abs(axial_Re(iel))
     end do
-      
+
   end subroutine subchannel_axial_Re
 
 !===============================================================================
@@ -956,21 +952,21 @@ implicit none
     use field
     use mesh
     use parall
-        
+
     implicit none
-    
+
     integer :: iel
     double precision, dimension(:), pointer :: axial_Re, axial_f, &
                                                subchannel_ID, A_Tbulk, &
                                                A_twall
     double precision :: temperature_ratio
-             
+
     call field_get_val_s_by_name('AxialReynoldsNumber', axial_Re)
     call field_get_val_s_by_name('AxialFrictionFactor', axial_f)
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
     call field_get_val_s_by_name('SubchannelBulkTemperature', A_Tbulk)
-    call field_get_val_s_by_name('SubchannelWallTemperature', A_twall)    
-    
+    call field_get_val_s_by_name('SubchannelWallTemperature', A_twall)
+
     do iel=1, ncel
       select case (bundle_type)
       case (1)
@@ -982,7 +978,7 @@ implicit none
           if(user_frictional_factor) &
             axial_f(iel) = FRICTIONAL_FACTOR_USER(iel)
         end if
-      case(2)  
+      case(2)
         temperature_ratio = A_twall(iel)/A_Tbulk(iel)
         if(axial_Re(iel)<1.d-30)then
           axial_f(iel) = 1.d30
@@ -994,9 +990,9 @@ implicit none
         end if
       end select
     end do
-    
+
   end subroutine subchannel_axial_f
-  
+
 !===============================================================================
 !! This is for PWR
   function FRICTIONAL_FACTOR_PWR(sub_ID, Re, direction)
@@ -1006,20 +1002,20 @@ implicit none
     use mesh
     use parall
     use optcal
-    
+
     implicit none
-      
+
     double precision :: FRICTIONAL_FACTOR_PWR
 !! Aguments
     double precision :: sub_ID, Re
     integer :: direction
-      
+
 !! Local variables 
     double precision, dimension(3) :: a, b1, b2
     double precision :: n, cf(3)
-    
+
     integer :: isub
-    
+
 !! Cheng & Todreas (1986)
     if(Re<=2300.d0)then
       a  = (/35.55d0, 44.40d0, 58.83d0/)
@@ -1032,9 +1028,9 @@ implicit none
       b2 = (/-0.09926d0, -0.04428d0, -0.03411d0/)
       n  = 0.18d0
     end if
-    
+
     isub = int(sub_ID)
-    
+
     select case (direction)
     case(1)
       cf = a+b1*(PbyD(isub)-1.d0)+b2*(PbyD(isub)-1.d0)**2
@@ -1042,11 +1038,11 @@ implicit none
 !! Checking results
 !      if(isub==2)write(*,*)cf(2), Re, PbyD(isub)
     case(2)
-    
+
     case(3)
-    
+
     end select
-    
+
     select case (cell_type(isub))
     case(1)
       FRICTIONAL_FACTOR_PWR = cf(1)
@@ -1057,7 +1053,7 @@ implicit none
     case default
       FRICTIONAL_FACTOR_PWR = 1.d30
     end select
-    
+
   end function FRICTIONAL_FACTOR_PWR
 
 !===============================================================================
@@ -1068,25 +1064,25 @@ implicit none
     use field
     use mesh
     use parall
-    
+
     implicit none
-      
+
     double precision :: FRICTIONAL_FACTOR_AGR
 !! Aguments
     double precision :: voidage, temp_ratio, sub_ID, Re
     integer :: direction
-      
+
 !! Local variables 
     double precision :: f0, f, cf
     double precision :: index3 = 0.55
-    
+
     integer :: isub
 
     if (voidage<0.7d0 .or. voidage>=0.8d0)then
       if (irangp.le.0) print*,'Warning: voidage is out of range. Check the code'
     end if
-     
-!! EDF report: E Romero, TET/REP/0054/94 CEN/DFWG/P(92)4743/B/3, 1994  
+
+!! EDF report: E Romero, TET/REP/0054/94 CEN/DFWG/P(92)4743/B/3, 1994
 !! voidage = 0.7
     if(Re<100.d0)then
       if (irangp.le.0) print*, "Warning: cf calculation out of Re lower bound"
@@ -1107,28 +1103,28 @@ implicit none
       if (irangp.le.0) print*, "Warning: cf calculation out of Re upper bound"
       f0 = 0.027498*(Re**(0.009246))
     end if
-    
+
     isub = int(sub_ID)
-    
+
     select case (direction)
     case(1)
       f = f0/(temp_ratio**index3)
     case(2)
-    
+
     case(3)
-    
+
     end select
-    
+
 !!  convert the Fanning frictional factor to Dacy frictional factor
     cf = 4.d0*f
     FRICTIONAL_FACTOR_AGR = cf
-    
+
   end function FRICTIONAL_FACTOR_AGR
 
 !===============================================================================
 !!read in physical properties from data table
   subroutine readin_properties_from_data_table(maxlim, minlim)
-  
+
     use parall
 
     implicit none
@@ -1142,9 +1138,9 @@ implicit none
     integer :: stat
     logical :: alive
     integer :: col = 6
-    
+
     inquire(file=name_data_table, exist=alive)
-    
+
     if(alive) then
       open(100,file=name_data_table)
     else
@@ -1152,31 +1148,31 @@ implicit none
         write(*,*) "Physical property table doesn't exist. Program terminated."
       stop
     end if
-    
+
     do i=1,5
       read(100,*)
     end do
-    
+
     n_rows = 0
-    
+
     do
       read(100,*, iostat=stat) dummy
       if(stat/=0)exit
       n_rows = n_rows+1
     end do
-    
+
     allocate(user_prop(n_rows,col))
-    
+
     rewind(100)
 
     do i=1,5
       read(100,*)
     end do
-    
+
     do i=1, n_rows
       read (100,*) user_prop(i,:)
     end do
-    
+
     close(100)
 
     maxlim = user_prop(n_rows,1)
@@ -1184,17 +1180,18 @@ implicit none
 
   end subroutine readin_properties_from_data_table
 
+
 !===============================================================================
 !! This routine is used to calculate the average velocity in each subchannel  
   subroutine subchannel_velocity()
-  
+
     use numvar
     use field
     use mesh
     use parall
-        
+
     implicit none
-    
+
     integer :: i, ii, iel, j
     double precision, dimension(:), pointer :: subchannel_ID
     double precision, dimension(:,:), pointer :: A_vel, vel
@@ -1213,28 +1210,26 @@ implicit none
         subchannel_vel(j,ii) = subchannel_vel(j,ii)+vel(ii,iel)*volume(iel)
       end do
     end do
-    
+
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_vel(i,1))
-        call parsom(subchannel_vel(i,2))
-        call parsom(subchannel_vel(i,3))
+      do ii=1,3
+        call parrsm(n_cell, subchannel_vel(:,ii))
       end do
     endif
-    
+
     do i=1,n_cell
       subchannel_vel(i,1) = subchannel_vel(i,1)/subchannel_vol(i)
       subchannel_vel(i,2) = subchannel_vel(i,2)/subchannel_vol(i)
       subchannel_vel(i,3) = subchannel_vel(i,3)/subchannel_vol(i)
     end do
-    
+
     do iel=1, ncel
       j = int(subchannel_ID(iel))
       A_vel(1,iel) = subchannel_vel(j,1)
       A_vel(2,iel) = subchannel_vel(j,2)
       A_vel(3,iel) = subchannel_vel(j,3)
     end do
-    
+   
     deallocate(subchannel_vel)
     
   end subroutine subchannel_velocity
@@ -1242,7 +1237,7 @@ implicit none
 !===============================================================================
  !! This routine is used to initialize subchannel tempeatures
   subroutine subchannel_temperatures_init()
-  
+
     use numvar
     use optcal
     use field
@@ -1250,15 +1245,15 @@ implicit none
     use parall
 
     implicit none
-    
+
     integer i,j,iel
     double precision, dimension(:), pointer :: subchannel_ID
     double precision, dimension(:), pointer :: A_temp, A_Tbulk, A_twall
     double precision, dimension(:), pointer :: tlocal
     double precision, allocatable, dimension(:) :: subchannel_temp 
-    
+
     if (iscalt.le.0) return
-    
+
     call field_get_val_s_by_name('SubchannelID', subchannel_ID) 
     call field_get_val_s_by_name('AverageTemperature', A_temp)
     call field_get_val_s_by_name('SubchannelBulkTemperature', A_Tbulk)
@@ -1266,7 +1261,7 @@ implicit none
     call field_get_val_s(ivarfl(isca(iscalt)),tlocal)
     
     allocate(subchannel_temp(n_cell))
-    
+
     subchannel_temp = 0.d0
     do iel=1, ncel
       j = int(subchannel_ID(iel))
@@ -1274,37 +1269,36 @@ implicit none
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_temp(i))
-      end do
+      call parrsm(n_cell, subchannel_temp)
     endif
-    
+
     do i=1,n_cell
       subchannel_temp(i) = subchannel_temp(i)/subchannel_vol(i)
     end do
-    
+
     do iel=1, ncel
       j = int(subchannel_ID(iel))
       A_temp(iel) = subchannel_temp(j)
       A_Tbulk(iel) = A_temp(iel)
       A_twall(iel) = A_temp(iel)
     end do
-    
+
     deallocate(subchannel_temp)
-    
+
   end subroutine subchannel_temperatures_init
-    
+
+
 !===============================================================================
 !! This routine is used to calculate the average & bulk temprature of each 
-!! subchannel  
+!! subchannel
   subroutine subchannel_temperature()
-  
+
     use numvar
     use optcal
     use field
     use mesh
     use parall
-           
+
     implicit none
 
     integer :: i, ii, iel, j
@@ -1314,8 +1308,8 @@ implicit none
     double precision, dimension(:,:), pointer :: vel
     double precision, allocatable, dimension(:) :: subchannel_temp, &
                                                    subchannel_Tbulk, &
-                                                   subchannel_mass_flux 
-    
+                                                   subchannel_mass_flux
+
     if (iscalt.gt.0) then
       ivart = isca(iscalt)
       call field_get_val_s(ivarfl(ivart), temp)
@@ -1324,14 +1318,14 @@ implicit none
     else 
       return
     endif
-    
+
     call field_get_val_v(ivarfl(iu), vel)
     call field_get_val_s(icrom, den) 
     call field_get_val_s_by_name('SubchannelID', subchannel_ID) 
-    
+
     allocate(subchannel_temp(n_cell), subchannel_Tbulk(n_cell), &
              subchannel_mass_flux(n_cell))
-    
+
     subchannel_temp = 0.d0
     subchannel_Tbulk = 0.d0
     subchannel_mass_flux = 0.d0
@@ -1343,24 +1337,22 @@ implicit none
       subchannel_mass_flux(j) = subchannel_mass_flux(j)+volume(iel) &
                               * den(iel)*vel(3,iel)
     end do
-    
+
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_temp(i))
-        call parsom(subchannel_Tbulk(i))
-        call parsom(subchannel_mass_flux(i))
-      end do
+      call parrsm(n_cell, subchannel_temp)
+      call parrsm(n_cell, subchannel_Tbulk)
+      call parrsm(n_cell, subchannel_mass_flux)
     endif
-    
+
     do i=1,n_cell
       subchannel_temp(i) = subchannel_temp(i)/subchannel_vol(i)
       if(abs(subchannel_mass_flux(i))<1.d-30)then
         subchannel_Tbulk(i) = subchannel_temp(i)
-      else  
+      else
         subchannel_Tbulk(i) = subchannel_Tbulk(i)/subchannel_mass_flux(i)
       end if
     end do
-    
+
     do iel=1, ncel
       j = int(subchannel_ID(iel))
       A_temp(iel) = subchannel_temp(j)
@@ -1395,14 +1387,14 @@ implicit none
                                                    subchannel_cp
     
     call field_get_val_s(iprpfl(iviscl), dynamicvis)
-    call field_get_val_s(icrom, den)  
-    
+    call field_get_val_s(icrom, den)
+
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
     call field_get_val_s_by_name('AverageDensity', A_den)
     call field_get_val_s_by_name('AverageDynamicViscosity', A_vis)
 
     allocate(subchannel_den(n_cell), subchannel_vis(n_cell))
-    
+
     subchannel_den = 0.d0
     subchannel_vis = 0.d0
     do iel=1, ncel
@@ -1410,12 +1402,10 @@ implicit none
       subchannel_den(j) = subchannel_den(j)+den(iel)*volume(iel)
       subchannel_vis(j) = subchannel_vis(j)+dynamicvis(iel)*volume(iel)
     end do
- 
+
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_den(i))
-        call parsom(subchannel_vis(i))
-      end do
+      call parrsm(n_cell, subchannel_den)
+      call parrsm(n_cell, subchannel_vis)
     endif
 
     do i=1,n_cell
@@ -1432,7 +1422,7 @@ implicit none
     deallocate(subchannel_den, subchannel_vis)
 
     if (iscalt.le.0) return
- 
+
 !! note: this is only for the case that thermal variable is tempeature
     call field_get_key_int(ivarfl(isca(iscalt)), kivisl, ifcvsl)
     if (ifcvsl.ge.0) then
@@ -1451,7 +1441,7 @@ implicit none
     call field_get_val_s_by_name('AverageHeatCapacity', A_cp)
 
     allocate(subchannel_cond(n_cell), subchannel_cp(n_cell))
-    
+
     subchannel_cond = 0.d0
     subchannel_cp = 0.d0
     do iel=1, ncel
@@ -1460,7 +1450,7 @@ implicit none
         subchannel_cond(j) = subchannel_cond(j)+cond(iel)*volume(iel)
       else
         subchannel_cond(j) = subchannel_cond(j)+visls0(iscalt)*volume(iel)
-      end if 
+      end if
       
       if (icp.gt.0) then
         subchannel_cp(j) = subchannel_cp(j)+cpro_cp(iel)*volume(iel)
@@ -1470,26 +1460,24 @@ implicit none
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_cond(i))
-        call parsom(subchannel_cp(i))
-      end do
+      call parrsm(n_cell, subchannel_cond)
+      call parrsm(n_cell, subchannel_cp)
     endif
-    
+
     do i=1,n_cell
       subchannel_cond(i) = subchannel_cond(i)/subchannel_vol(i)
       subchannel_cp(i) = subchannel_cp(i)/subchannel_vol(i)
     end do
-    
+
     do iel=1, ncel
       j = int(subchannel_ID(iel))
       A_cond(iel) = subchannel_cond(j)
       A_cp(iel) = subchannel_cp(j)
     end do
-    
+
     deallocate(subchannel_cond, subchannel_cp)
-  
-   
+
+
   end subroutine subchannel_physical_properties
 
 
@@ -1609,12 +1597,12 @@ implicit none
         end if
       end do
     end do
-    
+
     deallocate(xx,yy,zz)
-    
+
     if(irangp.le.0) &
       write(*,*) 'User defined subchannel mesh completed.'
-    
+
     end if
 !-------------------------------------------
 !! This section is for a locally ballooned PWR fuel bundle.
@@ -1635,7 +1623,7 @@ implicit none
 !! Calculate cell height and cell volume of the subchannel mesh
       cell_height(i) = abs(zz(i,2)-zz(i,1))
       cell_vol(i) = (xx(i,2)-xx(i,1))*(yy(i,2)-yy(i,1))*(zz(i,2)-zz(i,1))
-      
+
 !! Calculate cell center coordinates of the subchannel cell
       x_channel(i) = 0.5d0*(xx(i,2)+xx(i,1))
       y_channel(i) = 0.5d0*(yy(i,2)+yy(i,1))
@@ -1652,7 +1640,7 @@ implicit none
     where(z_channel>0.3746d0 .and. z_channel<0.4d0) &
       balloon_diameter = -2.d0*(7.07d0-5.d0)/25.4d0*(z_channel-0.4d0) &
                        + rod_diameter
-    
+
 !! cell_type: 1 interior channel; 2 edge channel; 3 corner channel
 !! Irregular cell type: 4 center blocked; 5 side blocked; 6 corner blocked
     cell_type = 1
@@ -1671,7 +1659,7 @@ implicit none
     where(x_channel>pitch .and. x_channel<2.d0*pitch .and. &
           y_channel>pitch .and. y_channel<2.d0*pitch .and. &
           z_channel>0.3238d0 .and. z_channel<0.4d0) cell_type = 6
-    
+
 !! Set pitch-to-diameter ratio for the subchannels 
     where(cell_type==1)PbyD = PbyD_interior
     where(cell_type==2)PbyD = PbyD_edge
@@ -1693,16 +1681,16 @@ implicit none
         end if
       end do
     end do
-    
+
     deallocate(xx,yy,zz)
     deallocate(balloon_diameter)
     
     if(irangp.le.0) &
       write(*,*) 'User defined subchannel mesh completed.'
-    
+
     end if
 !------------------------------------------------------------------------------- 
- 
+
     call field_get_val_s_by_name('PitchtoDiameterRatio', pitch2diameter)
     call field_get_val_s_by_name('SubchannelType', subchannel_type)
     
@@ -1713,7 +1701,7 @@ implicit none
 
     deallocate(x,y,z)
     deallocate(index_cell)
-   
+
   end subroutine subchannel_mesh_user
 
 !===============================================================================
@@ -1724,21 +1712,21 @@ implicit none
     use field
     use mesh
     use parall
-        
+
     implicit none
 
     double precision :: FRICTIONAL_FACTOR_USER
 
 !! Aguments
     integer :: iel
-    
+
 !! Local variables
     double precision, dimension(:), pointer :: axial_Re,         &
                                                subchannel_ID
-             
+
     call field_get_val_s_by_name('AxialReynoldsNumber', axial_Re)
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
-    
+
 !!  User example 1: locally ballooned PWR bundle
     if(.true.) &
       FRICTIONAL_FACTOR_USER = friction_user_1(subchannel_ID(iel), &
@@ -1749,21 +1737,21 @@ implicit none
 !-------------------------------------------------------------------------------
 !! This function is used for a locally ballooned PWR bundle
   function friction_user_1(sub_ID, Re)
-    
+
     implicit none
-    
+
     double precision :: friction_user_1
 
 !! Aguments
     double precision :: sub_ID, Re
-      
+
 !! Local variables 
     double precision, dimension(3) :: a, b1, b2
     double precision :: n, cf(3)
     double precision :: cf_tube
-    
+
     integer :: isub
-  
+
   !! Cheng & Todreas (1986)
     if(Re<=2300.d0)then
       a  = (/35.55d0, 44.40d0, 58.83d0/)
@@ -1775,10 +1763,10 @@ implicit none
       b1 = (/0.09059d0, 0.04199d0, 0.02681d0/)
       b2 = (/-0.09926d0, -0.04428d0, -0.03411d0/)
       n  = 0.18d0
-    end if  
-    
+    end if
+
     isub = int(sub_ID)
-    
+
     cf = a+b1*(PbyD(isub)-1.d0)+b2*(PbyD(isub)-1.d0)**2
     cf = cf/(Re**n+1.d-15)
 !!  Checking results
@@ -1830,7 +1818,7 @@ implicit none
     case default
       friction_user_1 = 1.d30
     end select
-    
+
   end function friction_user_1
 
 !===============================================================================
@@ -2296,10 +2284,8 @@ implicit none
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        do ii=1,3
-          call parsom(subchannel_cplvel(i,ii))
-        end do
+      do ii=1,3
+        call parrsm(n_cell, subchannel_cplvel(:,ii))
       end do
     endif
 
@@ -2367,10 +2353,8 @@ implicit none
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_cplt_w(i))
-        call parsom(subchannel_w(i))
-      end do
+      call parrsm(n_cell, subchannel_cplt_w)
+      call parrsm(n_cell, subchannel_w)
     endif
 
     do i=1, n_cell
@@ -2505,7 +2489,7 @@ implicit none
              nusselt_para_g(arr))
     
     rod_radius = fuel_rod_diameter/2.d0
-    
+
     rod_center_xyz(1,1,1) = x11
     rod_center_xyz(1,1,2) = y11
     do j=1,5
@@ -2556,7 +2540,7 @@ implicit none
       if(radius < rod_radius(j,k)*(1.d0+tol2) .and. &
          radius_cell > rod_radius(j,k) .and.        &
          (condition_a .or. condition_b)) then
-          
+
         if((cdgfbo(2,ifac)-y) >= 0)then
           angle(mm) = acos((cdgfbo(1,ifac)-x)/radius)/pi*180.d0
         else
@@ -2596,7 +2580,7 @@ implicit none
     endif
 
     if(irangp.ge.0)call parall_bcast_i(ii, mm)
-    
+
     do i=1,mm-1
       if(irangp.ge.0)then
         call parall_bcast_r(ii, angle(i))
@@ -2696,7 +2680,7 @@ implicit none
     if (ntcabs.eq.ntmabs) then
       if (irangp.le.0) close(impout)  
     endif
-    
+
     end do
     end do
     end do
@@ -2709,11 +2693,11 @@ implicit none
     deallocate(lstelt)
 
     contains
-    
+
     subroutine sorting(matrix)
-   
+
       implicit none
-      
+
       double precision,dimension(:,:), allocatable :: matrix
       double precision,dimension(:), allocatable :: buf
       integer :: nrow, ncolumn, irow, krow
@@ -2730,13 +2714,13 @@ implicit none
         matrix(irow,:) = matrix(krow,:)
         matrix(krow,:) = buf(:)
       enddo 
-     
+
       deallocate(buf)
 
       return
       
-    end subroutine sorting  
-    
+    end subroutine sorting
+
   end subroutine circumferential_quantities
 
 
@@ -2758,22 +2742,22 @@ implicit none
 !! | (51) (52) (53) (54) (55) |
 !! ----------------------------
   subroutine axial_avg_quantities ()
-  
+
     use numvar
     use optcal
     use cstphy
     use field
     use mesh
-    use parall  
+    use parall
     use entsor
-       
+
     implicit none
-    
+
     integer :: i, ii, j, jj, k, iel, ilelt, ifac, nlelt
     integer :: iel1, irang1, irangv
     integer :: npoint
     integer :: ivart
-    integer, allocatable, dimension(:) :: lstelt 
+    integer, allocatable, dimension(:) :: lstelt
     integer, allocatable, dimension(:) :: n_faces
     integer :: impout
     double precision, allocatable, dimension(:) :: xabs
@@ -2790,7 +2774,7 @@ implicit none
                         sum_vol_rho_w, sum_vol_t_rho_w
     character(len=50) :: chaine, cfilename
     logical :: condition_a
-    
+
     ! User specified parameters
     ! Geometrical parameters
     double precision, parameter :: pitch = 0.0126d0, &
@@ -2827,7 +2811,7 @@ implicit none
           call parall_bcast_r(irangv, xabs(ii))
         endif
       endif
-      
+
     enddo
 
     ivart = isca(iscalt)
@@ -2835,18 +2819,18 @@ implicit none
     call field_get_val_s(icrom, cpro_rom)
     call field_get_val_v(ivarfl(iu), cvar_vel)
     call field_get_val_s(ivarfl(ipr), cvar_p)
-    
+
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
     
     call field_get_val_s_by_name ('boundary_temperature',  twall)
     
     allocate(rod_center_xyz(5,5,2), rod_radius(5,5))
-    
+
     rod_radius = fuel_rod_diameter/2.d0
-    
+
     rod_center_xyz(1,1,1) = x11
     rod_center_xyz(1,1,2) = y11
-    
+
     do j=1,5
       if(j>1)rod_center_xyz(1,j,1)=rod_center_xyz(1,1,1)+(j-1)*pitch
       do i=1,5
@@ -2859,7 +2843,7 @@ implicit none
     allocate(lstelt(nfabor))
     chaine = all_rod_walls
     call getfbr(chaine, nlelt, lstelt)
-    
+
     allocate(xt1(npoint))
     allocate(xt2(npoint))
     allocate(xt_bulk(npoint))
@@ -2902,7 +2886,7 @@ implicit none
       xt_bulk(ii) = sum_vol_t_rho_w/sum_vol_rho_w
       xw(ii) = sum_vol_w/sum_vol
       xp(ii) = sum_vol_p/sum_vol
-    end do  
+    end do
 
     if (ntcabs.eq.ntmabs) then
       impout = impusr(1)
@@ -2926,11 +2910,11 @@ implicit none
 !    only calculate for the central rod
     do k=3,3
     do j=3,3
-   
+
     do ii = 1, npoint
       sum_surf = 0.d0
       sum_surf_t = 0.d0
-      n_faces(ii) = 0   
+      n_faces(ii) = 0
       do ilelt = 1, nlelt
         ifac = lstelt(ilelt)
         iel = ifabor(ifac)
@@ -2947,7 +2931,7 @@ implicit none
             sum_surf_t = sum_surf_t+surfbn(ifac)*twall(ifac)
             n_faces(ii) = n_faces(ii)+1
           end if
-        end if 
+        end if
       enddo
       if (irangp.ge.0) then
         call parsom(sum_surf)
@@ -2955,7 +2939,7 @@ implicit none
         call parcpt(n_faces(ii))
       end if
       xt2(ii) = sum_surf_t/sum_surf
-    enddo  
+    enddo
 
     if (ntcabs.eq.ntmabs) then
       impout = impusr(1)
@@ -2964,13 +2948,13 @@ implicit none
         open(impout,file=Trim(cfilename))
         write(impout,*)  &
            'Axial_coordinate(m)  t_wall(C)  N_faces'
-        do ii=1, npoint        
+        do ii=1, npoint
           write(impout,'(2f10.5, I4)') xabs(ii), xt2(ii), n_faces(ii)
         end do
         close(impout)
       endif
     endif
-    
+
     end do
     end do
 

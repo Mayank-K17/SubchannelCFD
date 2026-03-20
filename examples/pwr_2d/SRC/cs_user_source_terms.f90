@@ -122,7 +122,7 @@ double precision :: tau_w, dpdzf, dpdzd, Kc, len_porous, ubulk
 integer, allocatable, dimension(:) :: lstelt, lstfac
 double precision, dimension(:), pointer ::  Re, cf, den, Dh, volume_porosi, &
                                             axial_resis_f, axial_resis_d, &
-                                            porous_zone, imasfl, wall_shear_stress
+                                            porous_zone, imasfl, atau_w
 double precision, dimension(:,:),pointer :: A_vel, vel
 
 double precision :: flowint, flowref, surf, value, flowrate
@@ -174,7 +174,7 @@ if (ivar.ne.iu) return
 !!===========================
 !!Source term calculation
 !!===========================
-call field_get_val_s_by_name('WallShearStress', wall_shear_stress)
+call field_get_val_s_by_name('WallShearStress', atau_w)
 call getfbr(chaine, nlelt, lstelt)
 
 !! Impose the momentum source of wall frictional force
@@ -183,11 +183,11 @@ do ielt = 1, nlelt
   iel = ifabor(ifac)
 
   tau_w = 0.25d0*cf(iel)*0.5d0*den(iel)*abs(A_vel(3,iel))*A_vel(3,iel)
-  wall_shear_stress(iel) = abs(tau_w)
+  atau_w(iel) = abs(tau_w)
 !  crvexp(3,iel) = -tau_w*surfbn(ifac)+crvexp(3,iel)
 
 !! Implicit treatment may increase numerical stability
-  crvimp(3,3,iel) = -tau_w*surfbn(ifac)/(vel(3,iel)+epzero)
+!  crvimp(3,3,iel) = -tau_w*surfbn(ifac)/(vel(3,iel)+epzero)
 
 !  if(prs.and.(1.d0-volume_porosi(iel))>1.d-12) then
   if(prs.and.porous_zone(iel)>0.5d0) then

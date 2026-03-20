@@ -140,7 +140,7 @@ implicit none
   double precision, parameter :: crr_Nu = 1.d0 !0.82d0
 !! Use data table to define variable physical properties
   logical, parameter :: physical_property_table = .false.
-  character(len=50),parameter :: name_data_table = 'helium_7MPa.txt.txt'
+  character(len=50),parameter :: name_data_table = 'helium_7MPa.txt'
 !! Increment of the thermal variable in the property table (should be consistent
 !! with the data table created. Data table should follow the formats shown in 
 !! the examples)
@@ -943,18 +943,25 @@ logical, parameter :: cht_internal = .true.
                                                subchannel_type
     double precision, dimension(:), pointer :: cht
     character*80 :: chaine
-    logical :: within
+    logical :: within, alive
     integer :: indicator
-
-!! Dealing with the fluid region only
-    allocate(lstelt(ncel))
-    chaine = 'channel'
-    call getcel(chaine, nlelt, lstelt)
 
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
     call field_get_val_s_by_name('SubchannelType', subchannel_type)
     call field_get_val_s_by_name('CHTInternalCoupling', cht)
     cht = 1.d0
+
+ !!  Check if subchannel ID data file exists
+    inquire(file='subchannelID.dat', exist=alive)
+    if(alive) then
+      call io_subchannelID(1)
+      return
+    end if
+
+!! Dealing with the fluid region only
+    allocate(lstelt(ncel))
+    chaine = 'channel'
+    call getcel(chaine, nlelt, lstelt)
 
     call mesh_dimensions(subchannel_mesh_name, n_node, n_entity)
 
@@ -1097,6 +1104,8 @@ logical, parameter :: cht_internal = .true.
 
     end do
 
+    call io_subchannelID(2)
+
     deallocate(x,y,z)
     deallocate(index_cell, index_cello)
     deallocate(xx,yy,zz)
@@ -1104,6 +1113,95 @@ logical, parameter :: cht_internal = .true.
     deallocate(x_face1,y_face1,z_face1,x_face2,y_face2,z_face2)
 
   end subroutine subchannel_mesh_HTGR_GA
+
+
+!===============================================================================
+!! This routine is to read or write subchannel IDs
+  subroutine io_subchannelID(mode)
+
+    use numvar
+    use field
+    use mesh
+    use parall
+
+    implicit none
+
+    interface
+      subroutine global_cell_id(c_id, c_g_id)        &
+        bind(C, name='global_cell_id')
+        use, intrinsic :: iso_c_binding
+        implicit none
+        integer(kind=c_int) :: c_id
+        integer(kind=c_int) :: c_g_id
+      end subroutine global_cell_id
+    end interface
+
+    integer :: mode
+
+    double precision, pointer, dimension(:) :: subchannel_ID
+    integer :: i, ii, iel
+    double precision, allocatable, dimension(:) :: subchannel_IDg
+    integer :: c_g_id
+    integer :: dummy
+    integer :: aux, bcast
+
+    call field_get_val_s_by_name('SubchannelID', subchannel_ID)
+    allocate(subchannel_IDg(ncelgb))
+
+    if(mode==1) then
+      open(100, file='subchannelID.dat', status='old') 
+!!  read in subchannel IDs
+      read(100, *)n_cell
+
+      do i=1, ncelgb
+        read(100, *) dummy, subchannel_IDg(i)
+      end do
+      close(100)
+
+      do iel=1, ncel
+        if (irangp.ge.0) then
+          call global_cell_id(iel, c_g_id)
+          subchannel_ID(iel) = subchannel_IDg(c_g_id)
+        else
+          subchannel_ID(iel) = subchannel_IDg(iel)
+        end if
+      end do
+
+    else if(mode==2) then
+
+      subchannel_IDg = 1.d12
+
+      do iel=1, ncel
+        if (irangp.ge.0) then
+          call global_cell_id(iel, c_g_id)
+          subchannel_IDg(c_g_id) = subchannel_ID(iel)
+        else
+          subchannel_IDg(iel) = subchannel_ID(iel)
+        endif
+      end do
+
+      if (irangp.ge.0) then
+        do i=1, ncelgb
+          aux = 1
+          call parfpt (aux, bcast, subchannel_IDg(i))
+          call parall_bcast_r(bcast, subchannel_IDg(i))
+        end do
+      end if
+
+      if(irangp.le.0)then
+        open (100, file='subchannelID.dat', status='replace')
+        write(100, *) n_cell
+        do i=1, ncelgb
+          write(100,*) i, subchannel_IDg(i)
+        end do
+        close(100)
+      end if
+
+    end if
+
+    deallocate(subchannel_IDg)
+
+  end subroutine io_subchannelID
 
 !===============================================================================  
 !! This routine is used to acquire the number of columns in a irregular data 
@@ -2176,7 +2274,7 @@ logical, parameter :: cht_internal = .true.
         dis1 = dis_points(cord_vtx(:,1), xyzcen(:,iel))
         dis2 = dis_points(cord_vtx(:,ii+1), xyzcen(:,iel))
         dis3 = dis_points(cord_vtx(:,ii+2), xyzcen(:,iel))
-          
+
         if(dis0<=dis1 .or. dis0<=dis2 .or. dis0<=dis3) then
           in_out = point_tetra(xyzcen_solid(i,:), cord_vtx(:,1),   &
                                cord_vtx(:,ii+1), cord_vtx(:,ii+2), &
@@ -2551,14 +2649,12 @@ logical, parameter :: cht_internal = .true.
 
 !! In case of parallel run
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_surf(i))
-        call parsom(subchannel_rodsurf(i))
-        call parsom(subchannel_wallsurf(i))
-        call parsom(subchannel_vol(i))
-        call parcpt(nc(i))
-        call parcpt(nf(i))
-      end do
+      call parrsm(n_cell, subchannel_surf)
+      call parrsm(n_cell, subchannel_rodsurf)
+      call parrsm(n_cell, subchannel_wallsurf)
+      call parrsm(n_cell, subchannel_vol)
+      call parism(n_cell, nc)
+      call parism(n_cell, nf)
     endif
 
 !! Calculate the hydraulic diameter for each subchannel 
@@ -2704,7 +2800,6 @@ logical, parameter :: cht_internal = .true.
     end do
 
   end subroutine subchannel_axial_f
-
 
 !===============================================================================
 !! This is for PWR
@@ -2913,7 +3008,7 @@ logical, parameter :: cht_internal = .true.
         select case (bundle_type)
         case (1)
           if(axial_Re(iel)<1.d-30)then
-            Nu(iel) = 1.d3
+            Nu(iel) = 4.36
           else
             Pr = A_vis(iel)*A_cp(iel)/A_cond(iel)
             Nu(iel) = NUSSELT_NUMBER_PWR(subchannel_ID(iel), axial_Re(iel), Pr,&
@@ -2924,7 +3019,7 @@ logical, parameter :: cht_internal = .true.
         case (2)
           temperature_ratio = A_twall(iel)/A_Tbulk(iel)
           if(axial_Re(iel)<1.d-30)then
-            Nu(iel) = 1.d3
+            Nu(iel) = 4.36
           else
             Nu(iel) = NUSSELT_NUMBER_AGR(voidage, temperature_ratio, &
                                          subchannel_ID(iel), axial_Re(iel), 1) &
@@ -2934,7 +3029,7 @@ logical, parameter :: cht_internal = .true.
           end if
         case (3)
           if(axial_Re(iel)<1.d-30)then
-            Nu(iel) = 1.d3
+            Nu(iel) = 4.36
           else
             Pr = A_vis(iel)*A_cp(iel)/A_cond(iel)
             Nu(iel) = NUSSELT_NUMBER_HTGR_GA(subchannel_ID(iel), axial_Re(iel),&
@@ -3093,15 +3188,19 @@ logical, parameter :: cht_internal = .true.
 
     isub = int(sub_ID)
 
+    if(Re<=2300.d0)then
+      Nusselt = 4.36d0
 !! Dittus-Boelter correlation (developed flow, L/D>60)
 !  For L/D<60, entrance effect should be considered.
 !  0.023 based on Nuclear Systems I
 !  0.021 based on Tak et al 2012
-    if (heating)then
-!      Nusselt = 0.023d0*(Re**0.8d0)*(Pr**0.4d0)
-      Nusselt = 0.021d0*(Re**0.8d0)*(Pr**0.4d0)
     else
-      Nusselt = 0.023d0*(Re**0.8d0)*(Pr**0.3d0)
+      if (heating)then
+  !      Nusselt = 0.023d0*(Re**0.8d0)*(Pr**0.4d0)
+        Nusselt = 0.021d0*(Re**0.8d0)*(Pr**0.4d0)
+      else
+        Nusselt = 0.023d0*(Re**0.8d0)*(Pr**0.3d0)
+      end if
     end if
 
 !! It is better the correlation is used within the range of the below conditions
@@ -3223,13 +3322,11 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        do ii=1,3
-          call parsom(subchannel_vel(i,ii))
-          call parsom(subchannel_bulk_vel(i,ii))
-        end do
-        call parsom(subchannel_rho_A(i))
+      do ii=1,3
+        call parrsm(n_cell, subchannel_vel(:,ii))
+        call parrsm(n_cell, subchannel_bulk_vel(:,ii))
       end do
+      call parrsm(n_cell, subchannel_rho_A)
     endif
 
     do i=1,n_cell
@@ -3284,7 +3381,7 @@ logical, parameter :: cht_internal = .true.
 
     integer i,j,iel
     double precision, dimension(:), pointer :: subchannel_ID
-    double precision, dimension(:), pointer :: A_temp, A_Tbulk, A_twall
+    double precision, dimension(:), pointer :: A_temp, A_Tbulk, A_twall, A_tflux
     double precision, dimension(:), pointer :: tlocal, elocal
     double precision, allocatable, dimension(:) :: subchannel_temp
 
@@ -3294,6 +3391,7 @@ logical, parameter :: cht_internal = .true.
     call field_get_val_s_by_name('AverageTemperature', A_temp)
     call field_get_val_s_by_name('SubchannelBulkTemperature', A_Tbulk)
     call field_get_val_s_by_name('SubchannelWallTemperature', A_twall)
+    call field_get_val_s_by_name('SubchannelWallHeatFlux', A_tflux)
     if (itherm.ne.1) then
       call field_get_val_s_by_name('temperature', tlocal)
       tlocal = t0-273.15d0
@@ -3311,9 +3409,7 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_temp(i))
-      end do
+      call parrsm(n_cell, subchannel_temp)
     endif
 
     do i=1,n_cell
@@ -3326,6 +3422,7 @@ logical, parameter :: cht_internal = .true.
         A_temp(iel) = subchannel_temp(j)
         A_Tbulk(iel) = A_temp(iel)
         A_twall(iel) = A_temp(iel)+5.d0
+        A_tflux(iel) = 0.d0
       end if
     end do
 
@@ -3390,23 +3487,21 @@ logical, parameter :: cht_internal = .true.
       if(j>0)then
         subchannel_temp(j) = subchannel_temp(j)+temp(iel)*volume(iel)
         subchannel_Tbulk(j) = subchannel_Tbulk(j)+temp(iel)*volume(iel) &
-                            * den(iel)*vel(3,iel)
+                            * den(iel)*abs(vel(3,iel))
         subchannel_mass_flux(j) = subchannel_mass_flux(j)+volume(iel) &
-                                * den(iel)*vel(3,iel)
+                                * den(iel)*abs(vel(3,iel))
       end if
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_temp(i))
-        call parsom(subchannel_Tbulk(i))
-        call parsom(subchannel_mass_flux(i))
-      end do
+      call parrsm(n_cell, subchannel_temp)
+      call parrsm(n_cell, subchannel_Tbulk)
+      call parrsm(n_cell, subchannel_mass_flux)
     endif
 
     do i=1,n_cell
       subchannel_temp(i) = subchannel_temp(i)/subchannel_vol(i)
-      if(abs(subchannel_mass_flux(i))<1.d-30)then
+      if(abs(subchannel_mass_flux(i))<1.d-12)then
         subchannel_Tbulk(i) = subchannel_temp(i)
       else
         subchannel_Tbulk(i) = subchannel_Tbulk(i)/subchannel_mass_flux(i)
@@ -3452,11 +3547,12 @@ logical, parameter :: cht_internal = .true.
     character(len=80) :: chaine
     integer :: i, j, iel, ielt, ifac, nlelt
     integer, allocatable, dimension(:) :: lstelt
-    double precision, dimension(:), pointer :: subchannel_ID, A_twall, &
-                                               Nusselt, tbulk, tlocal, &
-                                               Dh, cond, htc
+    double precision, dimension(:), pointer :: subchannel_ID, A_twall, A_tflux,&
+                                               Nusselt, tbulk, tlocal, Dh,     &
+                                               cond, htc
     double precision, dimension(:), pointer :: twall0, twall1, tfluxwall
-    double precision, dimension(:), allocatable :: subchannel_wall_Temp, &
+    double precision, dimension(:), allocatable :: subchannel_wall_Temp,       &
+                                                   subchannel_wall_heat_flux,  &
                                                    subchannel_wall_area
     integer, allocatable, dimension(:) :: nf, nc
 
@@ -3478,9 +3574,11 @@ logical, parameter :: cht_internal = .true.
     call field_get_val_s_by_name('SubchannelID', subchannel_ID)
     call field_get_val_s_by_name('HydraulicDiameter', Dh)
     call field_get_val_s_by_name('SubchannelWallTemperature', A_twall)
+    call field_get_val_s_by_name('SubchannelWallHeatFlux', A_tflux)
     call field_get_val_s_by_name('NusseltNumber', Nusselt)
     call field_get_val_s_by_name('HTC', htc)
-    call field_get_val_s_by_name('SubchannelBulkTemperature', tbulk)
+!    call field_get_val_s_by_name('SubchannelBulkTemperature', tbulk)
+    call field_get_val_s_by_name('AverageTemperature', tbulk)
     call field_get_val_s_by_name('WallTemperature0', twall0)
     call field_get_val_s_by_name('WallTemperature1', twall1)
     call field_get_val_s_by_name('WallThermalFlux', tfluxwall)
@@ -3491,21 +3589,25 @@ logical, parameter :: cht_internal = .true.
       call field_get_val_s(ivarfl(isca(iscalt)), tlocal)
     end if
 
-    allocate(subchannel_wall_Temp(n_cell),subchannel_wall_area(n_cell))
+    allocate(subchannel_wall_area(n_cell))
+    allocate(subchannel_wall_Temp(n_cell))
+    allocate(subchannel_wall_heat_flux(n_cell))
 
 !! Disable solid cells in case of CHT
-    if (fluid_solid) call cs_porous_model_set_has_disable_flag(1)
+!    if (fluid_solid) call cs_porous_model_set_has_disable_flag(1)
 
 !! Calculate the wall thermal fluxes of each boundary face
     call wall_thermal_flux (nlelt, lstelt, tfluxwall)
 
     subchannel_wall_Temp = 0.d0
+    subchannel_wall_heat_flux = 0.d0
     subchannel_wall_area = 0.d0
     do ielt=1, nlelt
       ifac = lstelt(ielt)
       iel = ifabor(ifac)
-      if(cell_is_active(iel)==0)cycle
       j = int(subchannel_ID(iel))
+!      if(cell_is_active(iel)==0)cycle
+      if(j<0)cycle
       htc(iel) = Nusselt(iel)*cond(iel)/Dh(iel)
       twall0(ifac) = tbulk(iel)-tfluxwall(ifac)/htc(iel)
       twall1(ifac) = tlocal(iel)-tfluxwall(ifac)/htc(iel)
@@ -3513,28 +3615,33 @@ logical, parameter :: cht_internal = .true.
 !!    Note here the average wall temperature is calculated based on twall1
       subchannel_wall_Temp(j) = subchannel_wall_Temp(j)+twall1(ifac) &
                               * surfbn(ifac)
+      subchannel_wall_heat_flux(j) = subchannel_wall_heat_flux(j)    &
+                                   + tfluxwall(ifac)*surfbn(ifac)
       nf(j) = nf(j)+1
     end do
 
 !! Re-enable solid cells in case of CHT
-    if(fluid_solid) call cs_porous_model_set_has_disable_flag(0)
+!    if(fluid_solid) call cs_porous_model_set_has_disable_flag(0)
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_wall_area(i))
-        call parsom(subchannel_wall_Temp(i))
-        call parcpt(nf(i))
-      end do
+      call parrsm(n_cell, subchannel_wall_area)
+      call parrsm(n_cell, subchannel_wall_Temp)
+      call parrsm(n_cell, subchannel_wall_heat_flux)
+      call parism(n_cell, nf)
     endif
 
     do i=1,n_cell
       subchannel_wall_Temp(i) = subchannel_wall_Temp(i)/subchannel_wall_area(i)
+      subchannel_wall_heat_flux(i) = subchannel_wall_heat_flux(i)  &
+                                   / subchannel_wall_area(i)
     end do
 
     do iel=1, ncel
       j = int(subchannel_ID(iel))
-      if(j>0) &
+      if(j>0) then
         A_twall(iel) = subchannel_wall_Temp(j)
+        A_tflux(iel) = subchannel_wall_heat_flux(j)
+      end if
     end do
 
 !! Output for checking results
@@ -3548,7 +3655,9 @@ logical, parameter :: cht_internal = .true.
                 
 !! Deallocate temporary arrays
     deallocate(lstelt)
-    deallocate(subchannel_wall_Temp, subchannel_wall_area)
+    deallocate(subchannel_wall_area)
+    deallocate(subchannel_wall_Temp)
+    deallocate(subchannel_wall_heat_flux)
     deallocate(nc,nf)
 
   end subroutine subchannel_Twall
@@ -3759,10 +3868,8 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_den(i))
-        call parsom(subchannel_vis(i))
-      end do
+      call parrsm(n_cell, subchannel_den)
+      call parrsm(n_cell, subchannel_vis)
     endif
 
     do i=1,n_cell
@@ -3834,10 +3941,8 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_cond(i))
-        call parsom(subchannel_cp(i))
-      end do
+      call parrsm(n_cell, subchannel_cond)
+      call parrsm(n_cell, subchannel_cp)
     endif
 
     do i=1,n_cell
@@ -3898,11 +4003,9 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_entity
-        call parsom(filter_vel(i,1))
-        call parsom(filter_vel(i,2))
-        call parsom(filter_vel(i,3))
-      end do
+      call parrsm(n_entity, filter_vel(:,1))
+      call parrsm(n_entity, filter_vel(:,2))
+      call parrsm(n_entity, filter_vel(:,3))
     endif
 
     do i=1,n_entity
@@ -3976,10 +4079,8 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_entity
-        call parsom(filter_den(i))
-        call parsom(filter_vis(i))
-      end do
+      call parrsm(n_entity, filter_den)
+      call parrsm(n_entity, filter_vis)
     endif
 
     do i=1,n_entity
@@ -4054,10 +4155,8 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_entity
-        call parsom(filter_cond(i))
-        call parsom(filter_cp(i))
-      end do
+      call parrsm(n_entity, filter_cond)
+      call parrsm(n_entity, filter_cp)
     endif
 
     do i=1,n_entity
@@ -4853,10 +4952,14 @@ logical, parameter :: cht_internal = .true.
       FRICTIONAL_FACTOR_USER = friction_user_1(subchannel_ID(iel), &
                                                axial_Re(iel))
 
+!!  User example 2
+!      FRICTIONAL_FACTOR_USER = friction_user_2(iel)
+
   end function FRICTIONAL_FACTOR_USER
 
 
 !-------------------------------------------------------------------------------
+!! User example 1
 !! This function is used for a locally ballooned PWR bundle
   function friction_user_1(sub_ID, Re)
 
@@ -4943,6 +5046,122 @@ logical, parameter :: cht_internal = .true.
 
   end function friction_user_1
 
+!-------------------------------------------------------------------------------
+!! User example 2
+!! This function is used for forced convection with property variation
+  function friction_user_2(iel)
+
+    use numvar
+    use field
+    use mesh
+    use parall
+    use optcal
+
+    implicit none
+
+    double precision :: friction_user_2
+
+!! Aguments
+    integer          :: iel
+
+!! Local variables
+    integer          :: icorr
+    integer          :: i
+    double precision :: cf, cf0
+    double precision :: temp, resi
+    double precision, dimension(:), pointer :: tbulk, A_twall, Dh
+    double precision, dimension(:,:), pointer :: B_vel
+    double precision :: rhob, visb, cpb, condb, Reb, Prb, rhow
+    double precision :: intp, intp1, intp2
+    integer :: cpro_index
+
+!    call field_get_val_s_by_name('SubchannelBulkTemperature', tbulk)
+    call field_get_val_s_by_name('AverageTemperature', tbulk)
+    call field_get_val_s_by_name('SubchannelWallTemperature', A_twall)
+    call field_get_val_s_by_name('HydraulicDiameter', Dh)
+    call field_get_val_v_by_name('BulkVelocity', B_vel)
+
+    !! Obtain subchannel bulk properties based on bulk temperature
+    cpro_index = 1
+    do while (tbulk(iel) >= user_prop(cpro_index,1))
+      cpro_index = cpro_index + 1
+    end do
+    intp = user_prop(cpro_index,1)-user_prop(cpro_index-1,1)
+    intp1 = (tbulk(iel)-user_prop(cpro_index-1,1))/intp
+    intp2 = 1.d0-intp1
+
+    !! Bulk density
+    rhob = user_prop(cpro_index-1,3)*intp2+(user_prop(cpro_index,3))*intp1
+    !! Bulk heat capacity
+    cpb = user_prop(cpro_index-1,4)*intp2+(user_prop(cpro_index,4))*intp1
+    !! Bulk viscosity
+    visb = user_prop(cpro_index-1,5)*intp2+(user_prop(cpro_index,5))*intp1
+    !! Bulk thermal conductivity
+    condb = user_prop(cpro_index-1,6)*intp2+(user_prop(cpro_index,6))*intp1
+
+    !! Calculate subchannel bulk Reynolds number
+    Reb = rhob*abs(B_vel(3,iel))*Dh(iel)/visb
+    !! Calculate subchannel bulk Prandtl number
+    Prb = visb*cpb/condb
+
+    !! Select correlation to be used for turbulent flow
+    !! 1: Blasius and McAdams
+    !! 2: Petukhov and Popov (1983)
+    !! 3: Colebrook-White
+    icorr = 2
+
+    !! For fully developed flow in smooth circular channels
+    if(Reb<=2.3d3)then
+      cf = 64.d0/Reb
+    end if
+
+    if(Reb>2.3d3)then
+      !! Blasius
+      if(Reb<3.d4) then
+        cf = 0.316d0*(Reb**(-0.25d0))
+      !! McAdams
+      else if(Reb>=3.d4 .and. Reb<1.d6) then
+        cf = 0.184d0*(Reb**(-0.2d0))
+      else
+        cf = 0.184d0*(Reb**(-0.2d0))
+      end if
+
+      if(icorr==2) then
+        cf = 1.d0/(1.82d0*log10(Reb/8.d0))**2
+      end if
+
+      if(icorr==3) then
+        do i=1, 10000
+          cf0 = cf
+          temp = -2.*log10(2.51d0/Reb/sqrt(cf))
+          cf = 1./temp**2
+          resi = abs(cf-cf0)
+          if (resi<1.d-5) exit
+        end do
+        if(resi>=1.d-5) write(*,*)"Warning: non-convergence for cf"
+      end if
+
+    end if
+
+!! To introduce corrections for impacts of variable properties
+!! Petukhov and Popov (1983)
+    cpro_index = 1
+    do while (A_twall(iel) >= user_prop(cpro_index,1))
+      cpro_index = cpro_index + 1
+    end do
+    intp = user_prop(cpro_index,1)-user_prop(cpro_index-1,1)
+    intp1 = (A_twall(iel)-user_prop(cpro_index-1,1))/intp
+    intp2 = 1.d0-intp1
+
+    !! Wall density
+    rhow = user_prop(cpro_index-1,3)*intp2+(user_prop(cpro_index,3))*intp1
+
+    cf = cf*((rhow/rhob)**0.4)
+
+    friction_user_2 = cf
+
+  end function friction_user_2
+
 
 !===============================================================================
 !! This routine is used to define user Nusselt number 
@@ -4967,11 +5186,16 @@ logical, parameter :: cht_internal = .true.
     if(.true.) &
       NUSSELT_NUMBER_USER = nusselt_user_1(iel)
 
+!!  User example 2
+!      NUSSELT_NUMBER_USER = nusselt_user_2(iel)
+
   end function NUSSELT_NUMBER_USER
 
 
 !-------------------------------------------------------------------------------
 !! User example 1: variable property correction for Nu in forced convections
+!! Best suited for flow at supercritical pressures
+!! Based on work of Krasnosechekov and Protopopov
   function nusselt_user_1(iel)
 
     use numvar
@@ -5085,6 +5309,181 @@ logical, parameter :: cht_internal = .true.
 
   end function nusselt_user_1
 
+!-------------------------------------------------------------------------------
+!! User example 2: variable property correction for Nu in forced convections
+!! Best for subcritical conditions
+!! Petukhov and Popov (1983)
+  function nusselt_user_2(iel)
+
+    use numvar
+    use field
+    use mesh
+    use parall
+    use optcal
+
+    implicit none
+
+    double precision :: nusselt_user_2
+
+!! Aguments
+    integer          :: iel
+
+!! Local variables
+    logical :: condition, condition1, condition2
+    double precision, dimension(:), pointer :: tbulk, A_twall, A_tflux, Dh
+    double precision, dimension(:,:), pointer :: B_vel
+    double precision :: twall0, twall
+    double precision :: rhob, visb, kvisb, cpb, condb, betab, Reb, Prb, rhow
+    double precision :: htc, Nuf, cf, tol
+    double precision :: Gr, Bo, Nur
+    double precision :: intp, intp1, intp2
+    integer :: cpro_index, bo_index
+
+    double precision, dimension(53) :: tab_bo, tab_Nur
+
+    double precision, parameter :: g = 9.81
+
+    tab_bo = (/ 1.00000000e-07,1.15139540e-07,1.32571137e-07,1.52641797e-07,   &
+                1.75751062e-07,2.02358965e-07,2.32995181e-07,2.68269580e-07,   &
+                3.08884360e-07,3.55648031e-07,4.09491506e-07,4.71486636e-07,   &
+                5.42867544e-07,6.25055193e-07,7.19685673e-07,8.28642773e-07,   &
+                9.54095476e-07,1.09854114e-06,1.26485522e-06,1.45634848e-06,   &
+                1.67683294e-06,1.93069773e-06,2.10000000e-06,2.13000000e-06,   &
+                2.20000000e-06,2.22299648e-06,2.55954792e-06,2.94705170e-06,   &
+                3.39322177e-06,3.90693994e-06,4.49843267e-06,5.17947468e-06,   &
+                5.96362332e-06,6.86648845e-06,7.90604321e-06,9.10298178e-06,   &
+                1.04811313e-05,1.20679264e-05,1.38949549e-05,1.59985872e-05,   &
+                1.84206997e-05,2.12095089e-05,2.44205309e-05,2.81176870e-05,   &
+                3.23745754e-05,3.72759372e-05,4.29193426e-05,4.94171336e-05,   &
+                5.68986603e-05,6.55128557e-05,7.54312006e-05,8.68511374e-05,   &
+                1.00000000e-04 /)
+
+    tab_Nur = (/0.99416288,0.99326366,0.99222168,0.99101589,0.98961794,        &
+                0.98799536,0.98610953,0.98391427,0.98135397,0.97836115,        &
+                0.9748532 ,0.97072775,0.96585626,0.96007448,0.95316795,        &
+                0.94484889,0.93471699,0.92218776,0.90634331,0.88559737,        &
+                0.85666018,0.80958495,0.74395438,0.4719312 ,0.47844216,        &
+                0.48054972,0.50978019,0.54023444,0.57190827,0.60479573,        &
+                0.63889063,0.67418736,0.71068198,0.74837281,0.787261  ,        &
+                0.82735146,0.86865282,0.91117783,0.95494356,0.99997139,        &
+                1.04628673,1.09391984,1.14290416,1.19327764,1.24508184,        &
+                1.29836195,1.35316657,1.40954824,1.46756163,1.52726537,        &
+                1.58872091,1.6519927 ,1.7171481 /)
+
+!    call field_get_val_s_by_name('SubchannelBulkTemperature', tbulk)
+    call field_get_val_s_by_name('AverageTemperature', tbulk)
+    call field_get_val_s_by_name('SubchannelWallTemperature', A_twall)
+    call field_get_val_s_by_name('SubchannelWallHeatFlux', A_tflux)
+    call field_get_val_s_by_name('HydraulicDiameter', Dh)
+    call field_get_val_v_by_name('BulkVelocity', B_vel)
+
+    !! Obtain subchannel bulk properties based on bulk temperature
+    cpro_index = 1
+    do while (tbulk(iel) >= user_prop(cpro_index,1))
+      cpro_index = cpro_index + 1
+    end do
+    intp = user_prop(cpro_index,1)-user_prop(cpro_index-1,1)
+    intp1 = (tbulk(iel)-user_prop(cpro_index-1,1))/intp
+    intp2 = 1.d0-intp1
+
+    !! Bulk density
+    rhob = user_prop(cpro_index-1,3)*intp2+(user_prop(cpro_index,3))*intp1
+    !! Bulk heat capacity
+    cpb = user_prop(cpro_index-1,4)*intp2+(user_prop(cpro_index,4))*intp1
+    !! Bulk viscosity
+    visb = user_prop(cpro_index-1,5)*intp2+(user_prop(cpro_index,5))*intp1
+    !! Bulk thermal conductivity
+    condb = user_prop(cpro_index-1,6)*intp2+(user_prop(cpro_index,6))*intp1
+
+    !! Bulk thermal expansion coefficient
+    betab = user_prop(cpro_index-1,7)*intp2+(user_prop(cpro_index,7))*intp1
+    kvisb = visb/rhob
+
+    !! Calculate subchannel bulk Reynolds number
+    Reb = rhob*abs(B_vel(3,iel))*Dh(iel)/visb
+    !! Calculate subchannel bulk Prandtl number
+    Prb = visb*cpb/condb
+
+    !! calculate subchannel bulk Grashof number
+    Gr = betab*g*abs(A_tflux(iel))*(Dh(iel)**4)/condb/(kvisb**2)
+    !! calculate subchannel bulk Buoyancy parameter
+    Bo = Gr/Reb**3.425/Prb**0.8
+
+    if(Reb<=2300.d0) then
+      Nuf = 4.36d0
+
+    else
+      !! Dittus-Boelter correlation (not used)
+      if (heating)then
+        Nuf = 0.021d0*(Reb**0.8d0)*(Prb**0.4d0)
+      else
+        Nuf = 0.023d0*(Reb**0.8d0)*(Prb**0.3d0)
+      end if
+
+      !! It is better the correlation is used within the range of the below conditions
+      condition1 = Reb>=1.d4
+      condition2 = Prb>=0.7d0 .and. Prb<=1.d2
+      condition = condition1 .and. condition2
+
+      if(.not.condition) then
+        !print*, 'Warning! Nusselt number calculation error: out of range at ',&
+        !        'Subchannel ID ', isub
+      end if
+
+      !! To introduce corrections to consider variable properties
+      !! Calculate the Nusselt number
+      twall0 = A_twall(iel)
+      tol = 1.d-3
+      do
+        cpro_index = 1
+        do while (twall0 >= user_prop(cpro_index,1))
+          cpro_index = cpro_index + 1
+        end do
+        intp = user_prop(cpro_index,1)-user_prop(cpro_index-1,1)
+        intp1 = (twall0-user_prop(cpro_index-1,1))/intp
+        intp2 = 1.d0-intp1
+
+        !! Wall density
+        rhow = user_prop(cpro_index-1,3)*intp2+(user_prop(cpro_index,3))*intp1
+
+        if (Reb<=1.d-30) then
+          cf = 1.d30
+        else if(Reb<2.3d3 .and. Reb>1.d-30) then
+          cf = 64.d0/Reb
+        else
+          cf = 1.d0/(1.82d0*log10(Reb/8.d0))**2
+        end if
+        cf = cf*((rhow/rhob)**0.4)
+        Nuf = cf/8.d0*Reb*Prb
+        Nuf = Nuf/(1.d0+900.d0/Reb+12.7d0*((cf/8.d0)**0.5)*(Prb**(2.d0/3.d0)-1.d0))
+        htc = Nuf*condb/Dh(iel)
+        twall = tbulk(iel)+value_rw/(htc+1.d-30)
+        if(abs(twall-twall0) < tol) exit
+        twall0 = twall
+      end do
+
+    end if
+
+    !!buoyancy correction
+    Nur = 1.d0
+!    Bo_index = 1
+!    do while (Bo >= tab_Bo(Bo_index))
+!      if (Bo_index>53) then
+!        Bo = tab_Bo(53)
+!        if(irangp.le.0) &
+!          write(*,*) 'Warning: Buoyancy parameter exceeds upper limit'
+!        exit
+!      end if
+!      Bo_index = Bo_index + 1
+!    end do
+!    intp = tab_Bo(Bo_index)-tab_Bo(Bo_index-1)
+!    intp1 = (Bo-tab_Bo(Bo_index-1))/intp
+!    intp2 = 1.d0-intp1
+!    Nur = tab_Nur(Bo_index-1)*intp2+(tab_Nur(Bo_index))*intp1
+
+    nusselt_user_2 = Nuf*Nur
+
+  end function nusselt_user_2
 
 !===============================================================================
 !! This routine is used to calculate porous media resistance
@@ -6180,9 +6579,7 @@ logical, parameter :: cht_internal = .true.
     end do
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_vel(i))
-      end do
+      call parrsm(n_cell, subchannel_vel)
     endif
 
     do i=1,n_cell
@@ -6729,12 +7126,10 @@ logical, parameter :: cht_internal = .true.
     if(fluid_solid) call cs_porous_model_set_has_disable_flag(0)
 
     if (irangp.ge.0) then
-      do i=1, n_cell
-        call parsom(subchannel_wall_area(i))
-        call parsom(subchannel_wall_temp(i))
-        call parsom(subchannel_wall_flux(i))
-        call parcpt(nf(i))
-      end do
+      call parrsm(n_cell, subchannel_wall_area)
+      call parrsm(n_cell, subchannel_wall_temp)
+      call parrsm(n_cell, subchannel_wall_flux)
+      call parism(n_cell, nf)
     endif
 
     do iel=1, ncel
